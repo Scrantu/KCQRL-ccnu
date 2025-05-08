@@ -256,9 +256,10 @@ def train_model(model, train_loader, valid_loader, num_epochs, opt, ckpt_path, t
 
     if model.model_name=='lpkt':
         scheduler = torch.optim.lr_scheduler.StepLR(opt, 10, gamma=0.5)
-    for i in range(1, num_epochs + 1):
+    from tqdm import tqdm
+    for i in tqdm(range(1, num_epochs + 1)):
         loss_mean = []
-        for data in train_loader:
+        for data in tqdm(train_loader):
             train_step+=1
             if model.model_name in que_type_models and model.model_name not in ["lpkt", "rkt"]:
                 model.model.train()
