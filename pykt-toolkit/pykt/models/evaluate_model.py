@@ -190,7 +190,46 @@ def evaluate(model, test_loader, model_name, rel=None, save_path=""):
             elif model_name in que_type_models and model_name != "lpkt":
                 for k in data.keys():
                      data[k] = data[k].to(device)
+                
+                # 1. 构造 questions 和 concepts
+                questions = [[
+                    "What is gravity?",
+                    "Define photosynthesis.",
+                    "How to solve a linear equation?",
+                    "Explain Newton's third law.",
+                    "What is the capital of France?",
+                    "Describe the water cycle.",
+                    "What is the Pythagorean theorem?",
+                    "Explain how a plant makes food.",
+                    "What is an atom?",
+                    "Describe the process of mitosis."
+                ]]
+
+                concepts = [[
+                    "physics; force",
+                    "biology; plant",
+                    "math; algebra",
+                    "physics; mechanics",
+                    "geography; capitals",
+                    "science; environment",
+                    "math; geometry",
+                    "biology; photosynthesis",
+                    "chemistry; matter",
+                    "biology; cell division"
+                ]]
+
+                # 2. （可选）如果你有已知的 ground truth
+                labels = [[1, 1, 0, 1, 1, 0, 1, 0, 1, 1]]
+
+                # 3. 将它们打包成 data 字典
+                data_text = {
+                    'questions': questions,
+                    'concepts':  concepts,
+                    # 'labels':    labels,    # 如果不传，内部会默认全 1
+                }
                 y = model.predict_one_step(data)
+                # print('HI', y)
+                # input('')
                 c,cshft = q,qshft#question level 
             elif model_name == "dimkt":
                 y = model(q.long(),c.long(),sd.long(),qd.long(),r.long(),qshft.long(),cshft.long(),sdshft.long(),qdshft.long())
