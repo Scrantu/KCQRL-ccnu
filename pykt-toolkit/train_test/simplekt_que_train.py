@@ -30,13 +30,13 @@ if __name__ == "__main__":
     parser.add_argument("--batch_size", type=int, default=256)
     parser.add_argument("--num_epochs", type=int, default=200)
     parser.add_argument("--weighted_loss", type=int, default=0)
-    parser.add_argument("--train_subset_rate", type=float, default=1.0)
+    parser.add_argument("--train_subset_rate", type=float, default=0.1)
 
     # Important two model configs below
     parser.add_argument('--flag_load_emb', action='store_true', help="Explicitly control if the embeddings will be loaded from path")
     parser.add_argument('--flag_emb_freezed', action='store_true', help="Explicitly control if the embeddings will be freezed or trained")
 
-    parser.add_argument("--use_wandb", type=int, default=1)
+    parser.add_argument("--use_wandb", type=int, default=0)
     parser.add_argument("--wandb_project_name", type=str, default="", help="if not empty string, it will overwrite the default wandb project name")
     parser.add_argument("--add_uuid", type=int, default=1)
     

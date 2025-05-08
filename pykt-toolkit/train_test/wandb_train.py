@@ -7,10 +7,22 @@ torch.set_num_threads(4)
 from torch.optim import SGD, Adam
 import copy
 
-from pykt.models import train_model,evaluate,init_model
+from pykt.models import train_model,evaluate,init_model,evaluate_only
 from pykt.utils import debug_print,set_seed
 from pykt.datasets import init_dataset4train
 import datetime
+import random
+import numpy as np
+
+
+def fix_seed(seed=42):
+    torch.manual_seed(seed)
+    random.seed(seed)
+    np.random.seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+
+fix_seed()
 
 def get_device():
     if torch.backends.mps.is_available():  # Check for Apple Silicon GPU support
@@ -21,7 +33,7 @@ def get_device():
         return torch.device("cpu")
 
 #os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
-device = get_device()
+device = torch.device("cuda")
 #os.environ['CUBLAS_WORKSPACE_CONFIG']=':4096:2'
 
 def save_config(train_config, model_config, data_config, params, save_dir):
@@ -107,7 +119,7 @@ def main(params):
         #params_str = params_str+f"_{ str(uuid.uuid4())}"
         params_str = params_str
         folder_name = f"{str(uuid.uuid4())}"
-    ckpt_path = os.path.join(save_dir, folder_name)
+    ckpt_path = os.path.join(save_dir, 'my_model')
     if not os.path.isdir(ckpt_path):
         os.makedirs(ckpt_path)
     print(f"Start training model: {model_name}, embtype: {emb_type}, save_dir: {ckpt_path}, dataset_name: {dataset_name}")
@@ -121,8 +133,8 @@ def main(params):
     save_config(train_config, model_config, data_config[dataset_name], params, ckpt_path)
 
     # Do the save for wandb
-    wandb.config.update(params)
-    wandb.config.update({"checkpoint_path": ckpt_path})
+    # wandb.config.update(params)
+    # wandb.config.update({"checkpoint_path": ckpt_path})
 
     learning_rate = params["learning_rate"]
     for remove_item in ['use_wandb','learning_rate','add_uuid','l2']:
@@ -166,12 +178,111 @@ def main(params):
         dict_res = \
             train_model(model, train_loader, valid_loader, num_epochs, opt, ckpt_path, None, None, save_model, data_config[dataset_name], fold, use_wandb=params['use_wandb'], weighted_loss=params["weighted_loss"])
     else:
-        dict_res = train_model(model, train_loader, valid_loader, num_epochs, opt, ckpt_path, None, None, save_model, use_wandb=params['use_wandb'], weighted_loss=params["weighted_loss"])
-    
-    if save_model:
-        best_model = init_model(model_name, model_config, data_config[dataset_name], emb_type)
-        net = torch.load(os.path.join(ckpt_path, emb_type+"_model.ckpt"))
-        best_model.load_state_dict(net)
+        # dict_res = train_model(model, train_loader, valid_loader, num_epochs, opt, ckpt_path, None, None, save_model, use_wandb=params['use_wandb'], weighted_loss=params["weighted_loss"])
+        
+        # ### For pretrained model and "evaluation only"
+        from pykt.models import evaluate_only
+        net = torch.load(os.path.join(ckpt_path, "current_model.ckpt"),  map_location=model.device)
+        model.load_state_dict(net)
+        
+        # way 1
+        # dict_res = evaluate_only.train_model(model, train_loader, valid_loader, num_epochs, opt, ckpt_path, None, None, save_model, use_wandb=params['use_wandb'], weighted_loss=params["weighted_loss"])
+        
+        # way 2
+        # 1. 构造 questions 和 concepts
+        questions = [
+                [
+                    "What is gravity?",
+                    "Define photosynthesis.",
+                    "How to solve a linear equation?",
+                    "Explain Newton's third law.",
+                    "What is the capital of France?",
+                    "Describe the water cycle.",
+                    "What is the Pythagorean theorem?",
+                    "Explain how a plant makes food.",
+                    "What is an atom?",
+                    "Describe the process of mitosis."
+                ],
+                   [
+                    "What is gravity?",
+                    "Define photosynthesis.",
+                    "How to solve a linear equation?",
+                    "Explain Newton's third law.",
+                    "What is the capital of France?",
+                    "Describe the water cycle.",
+                    "What is the Pythagorean theorem?",
+                    "Explain how a plant makes food.",
+                    "What is an atom?",
+                    "Describe the process of mitosis."
+                ],
+                ]
+
+        concepts = [
+                   [
+                    "physics; force",
+                    "biology; plant",
+                    "math; algebra",
+                    "physics; mechanics",
+                    "geography; capitals",
+                    "science; environment",
+                    "math; geometry",
+                    "biology; photosynthesis",
+                    "chemistry; matter",
+                    "biology; cell division"
+                ],
+                   [
+                    "physics; force",
+                    "biology; plant",
+                    "math; algebra",
+                    "physics; mechanics",
+                    "geography; capitals",
+                    "science; environment",
+                    "math; geometry",
+                    "biology; photosynthesis",
+                    "chemistry; matter",
+                    "biology; cell division"
+                ],
+                ]
+
+        # 2. （可选）如果你有已知的 ground truth
+        labels = [[1, 1, 0, 1, 1, 0, 1, 0, 1, 1], [1, 1, 0, 1, 1, 0, 1, 0, 1, 1]]
+
+        # 3. 将它们打包成 data 字典
+        data_text = {
+                    'questions': questions,
+                    'concepts':  concepts,
+                    # 'labels':    labels,    # 如果不传，内部会默认全 1
+                }
+        y = model.predict_one_step_g(data_text)
+        print(y)
+        input('')
+
+        # questions = [
+        # "What is the capital of France?",
+        # "Explain how photosynthesis works.",
+        # "Solve for x in the equation: 2x + 5 = 17."
+        # ]
+        # concepts = [
+        #     "geography; capitals",
+        #     "biology; plant physiology",
+        #     "algebra; linear equations"
+        # ]
+        # # 端到端文本预测
+        # probs, cog_ids, acq_ids, cog_desc, acq_desc = model.predict_text_sequence(
+        #     questions, concepts, greedy=True
+        # )
+        # for i, q in enumerate(questions):
+        #     print(f"Q{i+1}: {q}")
+        #     print(f"  P(correct)      = {probs[i]:.3f}")
+        #     print(f"  Cognition level = {cog_ids[i]} ({cog_desc[i]})")
+        #     print(f"  Acquisition lvl = {acq_ids[i]} ({acq_desc[i]})")
+        #     print()
+        # dict_res = evaluate_only.train_model(model, train_loader, valid_loader, num_epochs, opt, ckpt_path, None, None, save_model, use_wandb=params['use_wandb'], weighted_loss=params["weighted_loss"])
+       
+    # if save_model:
+    #     best_model = init_model(model_name, model_config, data_config[dataset_name], emb_type)
+    #     net = torch.load(os.path.join(ckpt_path, emb_type+"_model_assisg2009.ckpt"))
+    #     best_model.load_state_dict(net)
 
     print("fold\tmodelname\tembtype\ttestauc\ttestavgprc\ttestacc\twindow_testauc\twindow_testavgprc\twindow_testacc\tvalidauc\tvalidavgprc\tvalidacc\tbest_epoch")
     print(str(fold) + "\t" + model_name + "\t" + emb_type + "\t" + str(round(dict_res['test_auc'], 4)) + str(round(dict_res['test_avg_prc'], 4)) + "\t" + str(round(dict_res['test_acc'], 4)) + "\t" + str(round(dict_res['window_test_auc'], 4)) + str(round(dict_res['window_test_avg_prc'], 4)) + "\t" + str(round(dict_res['window_test_acc'], 4)) + "\t" + str(round(dict_res['valid_auc_checkpoint'], 4)) + str(round(dict_res['valid_avg_prc_checkpoint'], 4)) + "\t" + str(round(dict_res['valid_acc_checkpoint'], 4)) + "\t" + str(dict_res['best_epoch']))
