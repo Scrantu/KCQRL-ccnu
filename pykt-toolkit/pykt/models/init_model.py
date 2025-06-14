@@ -111,7 +111,8 @@ def init_model(model_name, model_config, data_config, emb_type):
         # model.printparams()
         model = model.to(device)
     elif model_name == "iekt":
-        model = IEKT(num_q=data_config['num_q'], num_c=data_config['num_c'],
+        model = IEKT(
+                num_q=data_config['num_q'], num_c=data_config['num_c'],
                 max_concepts=data_config['max_concepts'], **model_config, emb_type=emb_type, emb_path=data_config["emb_path"],device=device).to(device)   
     elif model_name == "qdkt":
         # Recent addition: model config needs to include flag_load_embf lag_emb_freezed booleans

@@ -8,13 +8,13 @@ import numpy as np
 from numpy import linalg
 from sklearn.preprocessing import normalize
 
-# cd "representation_learning" folder
+### 检查文件名；嵌入=0.4*问题嵌入+0.4*答案嵌入+0.2*概念嵌入
 
 # Get the folder to load the trained model 
-folder_saved_model = '../pykt-toolkit/train_test/bert-tiny/' # Experiment folder
+folder_saved_model = 'C:/Users/zhaoc/Desktop/KCQRL-main/pykt-toolkit/train_test/bert-tiny' # Experiment folder
 
-path_data_questions = '../data/XES3G5M/metadata/questions_translated_kc_sol_annotated_mapped.json'
-path_kc_questions_map = '../data/XES3G5M/metadata/kc_questions_map.json'
+path_data_questions = 'C:/Users/zhaoc/Desktop/KCQRL-main/data/XES3G5M/metadata/questions_translated_kc_sol_annotated_mapped.json'
+path_kc_questions_map = 'C:/Users/zhaoc/Desktop/KCQRL-main/data/XES3G5M/metadata/kc_questions_map.json'
 
 with open(path_data_questions, 'r') as file:
     data_questions = json.load(file)
@@ -22,12 +22,12 @@ with open(path_data_questions, 'r') as file:
 with open(path_kc_questions_map, 'r') as file:
     kc_questions_map = json.load(file)
 
-embeddings_save_folder = "../data/XES3G5M/metadata/embeddings/representation_learning"
+embeddings_save_folder = "C:/Users/zhaoc/Desktop/KCQRL-main/data/XES3G5M/metadata/embeddings/representation_learning"
 
 if not os.path.exists(embeddings_save_folder):
     os.makedirs(embeddings_save_folder)
 
-BERT_PATH = '../pykt-toolkit/train_test/bert-tiny'
+BERT_PATH = 'C:/Users/zhaoc/Desktop/KCQRL-main/pykt-toolkit/train_test/bert-tiny'
 
 # Load the tokenizer
 tokenizer = BertTokenizer.from_pretrained(BERT_PATH)
@@ -70,12 +70,16 @@ def text_to_embeddings(texts, max_length=128):
     return torch.cat(embeddings, dim=0)
 list_questions = [value['question'] for key, value in data_questions.items()]
 list_sol_steps = [[sol for sol in value['step_by_step_solution_list']] for key,value in data_questions.items()]
+list_concepts = [value['knowledge_concepts_text'] for key, value in data_questions.items()]
 
 #Prepend special tokens 
 questions = ['[Q] ' + q for q in list_questions]
 sol_steps = [['[S] ' + step for step in sol_steps] for sol_steps in list_sol_steps]
+concepts = ['[C] ' + c for c in list_concepts]
+
 #Get the embeddings
 question_embeddings = text_to_embeddings(questions)
+concept_embeddings = text_to_embeddings(concepts)
 
 # Flatten the solution steps and prepend with special token
 flat_solution_steps = [step for sublist in sol_steps for step in sublist]
@@ -90,6 +94,8 @@ for steps in sol_steps:
     start_idx = end_idx
 # Convert these embeddings to numpy array or lists to have necessary pre-computations
 np_question_embeddings = question_embeddings.cpu().detach().numpy()
+np_concept_embeddings = concept_embeddings.cpu().detach().numpy()
+
 
 np_sol_step_embeddings = []
 for i in range(len(sol_step_embeddings)):
@@ -101,8 +107,9 @@ for i in range(len(np_sol_step_embeddings)):
 dict_emb = {}
 for i in range(len(np_question_embeddings)):
     emb_q = np_question_embeddings[i].copy().reshape(1,-1)
+    emb_c = np_concept_embeddings[i].copy().reshape(1,-1)
     emb_sol = np_sol_step_embeddings_mean[i].copy().reshape(1,-1)
-    emb = (emb_q + emb_sol)/2
+    emb = 0.4*emb_q + 0.4*emb_sol + 0.2*emb_c
 
     norm_emb = normalize(emb, axis=1, norm='l2').flatten()
     dict_emb[str(i)] = norm_emb.tolist()

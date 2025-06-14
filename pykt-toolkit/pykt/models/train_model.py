@@ -223,6 +223,7 @@ def model_forward(model, data, rel=None, weighted_loss=0):
         y = model(cc.long(), cq.long(), ct.long(), cr.long())#, csm.long())
         ys.append(y[:, 1:])
     elif model_name in que_type_models and model_name not in ["lpkt", "rkt"]:
+        # iekt
         # We need to move all components of data to device
         for k in data.keys():
             data[k] = data[k].to(device)

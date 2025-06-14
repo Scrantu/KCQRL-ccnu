@@ -9,9 +9,10 @@ from .iekt_utils import mygru,funcs
 from pykt.utils import debug_print
 from .akt_que import QueEmbedder
 from transformers import BertTokenizer, BertModel
+from sklearn.preprocessing import normalize
 
 class IEKTQueNet(nn.Module): 
-    def __init__(self, num_q,num_c,emb_size,max_concepts,lamb=40,n_layer=1,cog_levels=10,acq_levels=10,dropout=0,gamma=0.93, emb_type='qc_merge', emb_path="", flag_load_emb=False, flag_emb_freezed=False, pretrain_dim=768,device='cpu'):
+    def __init__(self, num_q,num_c,emb_size,max_concepts,lamb=40,n_layer=1,cog_levels=10,acq_levels=10,dropout=0,gamma=0.93, emb_type='qc_merge', emb_path="", flag_load_emb=True, flag_emb_freezed=True, pretrain_dim=768,device='cpu'):
         super().__init__()
         self.model_name = "iekt_que"
         debug_print(f"The flag_load_emb is {flag_load_emb} in IEKTQueNet.",fuc_name=self.model_name)
@@ -19,6 +20,7 @@ class IEKTQueNet(nn.Module):
         self.concept_num = num_c
         self.max_concept = max_concepts
         self.device = device
+        print('device:', device)
         self.emb_type = emb_type
         self.predictor = funcs(n_layer, emb_size * 5, 1, dropout)
         self.cog_matrix = nn.Parameter(torch.randn(cog_levels, emb_size * 2).to(self.device), requires_grad=True) 
@@ -58,7 +60,7 @@ class IEKTQueNet(nn.Module):
     def pi_cog_func(self, x, softmax_dim = 1):
         return F.softmax(self.select_preemb(x), dim = softmax_dim)
 
-    def obtain_v(self, q, c, h, x, emb):
+    def obtain_v(self, q, c, h, x, emb, q_c_text_vec=None):
         """_summary_
 
         Args:
@@ -73,13 +75,23 @@ class IEKTQueNet(nn.Module):
         """
 
         #debug_print("start",fuc_name='obtain_v')
-        v = self.get_ques_representation(q,c)
-        predict_x = torch.cat([h, v], dim = 1)#equation4
-        h_v = torch.cat([h, v], dim = 1)#equation4 为啥要计算两次？
-        prob = self.predictor(torch.cat([
-            predict_x, emb
-        ], dim = 1))#equation7
-        return h_v, v, prob, x
+        if q_c_text_vec ==  None:
+            v = self.get_ques_representation(q,c)
+            predict_x = torch.cat([h, v], dim = 1)#equation4
+            h_v = torch.cat([h, v], dim = 1)#equation4 为啥要计算两次？
+            prob = self.predictor(torch.cat([
+                predict_x, emb
+            ], dim = 1))#equation7
+            return h_v, v, prob, x
+        else:
+            v = q_c_text_vec
+            predict_x = torch.cat([h, v], dim = 1)#equation4
+            h_v = torch.cat([h, v], dim = 1)#equation4 为啥要计算两次？
+            prob = self.predictor(torch.cat([
+                predict_x, emb
+            ], dim = 1))#equation7
+            return h_v, v, prob, x
+
 
     def update_state(self, h, v, emb, operate):
         """_summary_
@@ -131,7 +143,7 @@ class IEKTQue(QueBaseModel):
         for param in self.bert_model.parameters():
             param.requires_grad = False
         BERT_DIM = 128
-        # divide by 2 => one for question embedding, and one for concept embedding
+        # divide by 2 => one for question embedding, and one for concept embedding if using concat; Otherwise, no need to use projection layer 
         self.projection_layer = nn.Linear(BERT_DIM, 64).to(device)
     
     def train_one_step(self,data,process=True,weighted_loss=0):
@@ -230,15 +242,15 @@ class IEKTQue(QueBaseModel):
     def predict_one_step(self,data,return_details=False,process=True):
         sigmoid_func = torch.nn.Sigmoid()
         data_new = self.batch_to_device(data,process)
-
-        # device = torch.device('cuda')
-        # T = 200  # 注意：设置为200，去掉一个后变成199
-        # data_new = {
-        #     'cq': torch.randint(1, 100, (1, T), dtype=torch.long, device=device),
-        #     'cc': torch.randint(1, 50, (1, T), dtype=torch.long, device=device),
-        #     'cr': torch.randint(0, 2, (1, T), dtype=torch.long, device=device),
-        #     'qseqs': torch.randint(1, 100, (1, T), dtype=torch.long, device=device)
-        # }
+      
+        device = torch.device('cuda')
+        T = 200  # 注意：设置为200，去掉一个后变成199
+        data_new = {
+            'cq': torch.randint(1, 100, (1, T), dtype=torch.long, device=device),
+            'cc': torch.randint(1, 50, (1, T), dtype=torch.long, device=device),
+            'cr': torch.randint(0, 2, (1, T), dtype=torch.long, device=device),
+            'qseqs': torch.randint(1, 100, (1, T), dtype=torch.long, device=device)
+        }
 
 
         data_len = data_new['cc'].shape[0]
@@ -281,6 +293,7 @@ class IEKTQue(QueBaseModel):
             # print(f"data_new['cr'] is {data_new['cr']}")
             ground_truth = data_new['cr'][:,seqi]
             # print(f"ground_truth shape is {ground_truth.shape},ground_truth is {ground_truth}")
+
             flip_prob_emb = self.model.pi_sens_func(out_x)##equation12中的f_e
 
             m = Categorical(flip_prob_emb)
@@ -290,7 +303,7 @@ class IEKTQue(QueBaseModel):
             # print(f"emb shape is {emb.shape}")
             
             h = self.model.update_state(h, v, emb, ground_truth.unsqueeze(1))#equation13～14
-           
+
             uni_prob_list.append(prob.detach())
             
             emb_action_list.append(emb_a)#s_t 列表
@@ -317,6 +330,126 @@ class IEKTQue(QueBaseModel):
         out = self.bert_model(**toks)
         return out.last_hidden_state[:,0,:]
     
+    def predict_one_step_text(self,data,return_details=False,process=True, teacher_forcing_steps=0):
+        print('exe here')
+        sigmoid_func = torch.nn.Sigmoid()
+        # data_new = self.batch_to_device(data,process)
+      
+        # —— 1) 支持 {'questions','concepts','labels'} 的模式 —— #
+        if isinstance(data, dict) and 'questions' in data and 'concepts' in data:
+            questions = data['questions']
+            solutions = data['solutions']
+            concepts  = data['concepts']
+            labels    = data.get('labels', None)
+
+            B = len(questions)
+            T = 3  # 序列最大长度
+            if labels is None:
+                labels = [[1] * T for _ in range(B)]
+            labels_tensor = torch.tensor(labels, dtype=torch.long, device=self.device)
+
+            # BERT flatten 编码
+            flat_q = [q for seq in questions for q in seq]
+            flat_s = [s for seq in solutions for s in seq]
+            flat_c = [c for seq in concepts for c in seq]
+
+            toks_q = self.bert_tokenizer(flat_q, padding=True, truncation=True, return_tensors='pt').to(self.device)
+            toks_s = self.bert_tokenizer(flat_s, padding=True, truncation=True, return_tensors='pt').to(self.device)
+            toks_c = self.bert_tokenizer(flat_c, padding=True, truncation=True, return_tensors='pt').to(self.device)
+
+            out_q = self.bert_model(**toks_q).last_hidden_state[:, 0, :]
+            out_s = self.bert_model(**toks_s).last_hidden_state[:, 0, :]
+            out_c = self.bert_model(**toks_c).last_hidden_state[:, 0, :]
+            
+            # pooling q,s,c
+            # important
+            out_pool = 0.4*out_q + 0.4*out_s + 0.2*out_c
+            # out_pool = normalize(out_pool, axis=1, norm='l2').flatten()
+            # out_pool = self.projection_layer(out_pool)
+            q_c_vec = out_pool.view(B, T, -1)
+   
+            zero_ids = torch.zeros(B, T, dtype=torch.long, device=self.device)
+            data_new = {
+                'cq':      zero_ids,
+                'cc':      zero_ids,
+                'cr':      labels_tensor,
+                'qseqs':   torch.ones_like(zero_ids),
+                'q_c_vec': q_c_vec,
+            }
+
+        data_len = data_new['cc'].shape[0]
+        seq_len = data_new['cc'].shape[1]
+        h = torch.zeros(data_len, self.model.emb_size).to(self.device)
+        batch_probs, uni_prob_list, actual_label_list, states_list, reward_list =[], [], [], [], []
+        p_action_list, pre_state_list, emb_action_list, op_action_list, actual_label_list, predict_list, ground_truth_list = [], [], [], [], [], [], []
+
+        rt_x = torch.zeros(data_len, 1, self.model.emb_size * 2).to(self.device)
+        for seqi in range(0, seq_len):#序列长度
+            #debug_print(f"start data_new, c is {data_new}",fuc_name='train_one_step')
+            ques_h = torch.cat([q_c_vec[:,seqi], h], dim = 1)#equation4
+            # d = 64*3 [题目,知识点,h]
+            # print('ques_h', ques_h.shape)
+            flip_prob_emb = self.model.pi_cog_func(ques_h)
+
+            m = Categorical(flip_prob_emb)#equation 5 的 f_p
+            emb_ap = m.sample()#equation 5
+            emb_p = self.model.cog_matrix[emb_ap,:]#equation 6
+
+            h_v, v, logits, rt_x = self.model.obtain_v(q=data_new['cq'][:,seqi], c=data_new['cc'][:,seqi], 
+                                                        h=h, x=rt_x, emb=emb_p, q_c_text_vec=q_c_vec[:,seqi])#equation 7
+            prob = sigmoid_func(logits)#equation 7 sigmoid
+
+            out_operate_groundtruth = data_new['cr'][:,seqi].unsqueeze(-1) #获取标签
+            
+            out_x_groundtruth = torch.cat([
+                h_v.mul(out_operate_groundtruth.repeat(1, h_v.size()[-1]).float()),
+                h_v.mul((1-out_operate_groundtruth).repeat(1, h_v.size()[-1]).float())],
+                dim = 1)#equation9
+
+            out_operate_logits = torch.where(prob > 0.5, torch.tensor(1).to(self.device), torch.tensor(0).to(self.device)) 
+            out_x_logits = torch.cat([
+                h_v.mul(out_operate_logits.repeat(1, h_v.size()[-1]).float()),
+                h_v.mul((1-out_operate_logits).repeat(1, h_v.size()[-1]).float())],
+                dim = 1)#equation10                
+            out_x = torch.cat([out_x_groundtruth, out_x_logits], dim = 1)#equation11
+            # print(f"data_new['cr'] is {data_new['cr']}")
+            ground_truth = data_new['cr'][:,seqi]
+
+            # print(f"ground_truth shape is {ground_truth.shape},ground_truth is {ground_truth}")
+            flip_prob_emb = self.model.pi_sens_func(out_x)##equation12中的f_e
+
+            m = Categorical(flip_prob_emb)
+            emb_a = m.sample()
+            emb = self.model.acq_matrix[emb_a,:]#equation12 s_t
+            # print(f"emb_a shape is {emb_a.shape}")
+            # print(f"emb shape is {emb.shape}")
+            
+            h = self.model.update_state(h, v, emb, ground_truth.unsqueeze(1))#equation13～14
+
+            uni_prob_list.append(prob.detach())
+            
+            emb_action_list.append(emb_a)#s_t 列表
+            p_action_list.append(emb_ap)#m_t
+            states_list.append(out_x)
+            pre_state_list.append(ques_h)#上一个题目的状态
+            
+            ground_truth_list.append(ground_truth)
+            predict_list.append(logits.squeeze(1))
+            this_reward = torch.where(out_operate_logits.squeeze(1).float() == ground_truth,
+                            torch.tensor(1).to(self.device), 
+                            torch.tensor(0).to(self.device))# if condition x else y,这里相当于统计了正确的数量
+            reward_list.append(this_reward)
+        prob_tensor = torch.cat(uni_prob_list, dim = 1)
+        if return_details:
+            return data_new,emb_action_list,p_action_list,states_list,pre_state_list,reward_list,predict_list,ground_truth_list
+        else:
+            print(ground_truth_list, p_action_list, emb_action_list)
+
+            last_column = prob_tensor[:, -1]
+            last_column = torch.where(last_column > 0.5, torch.tensor(1).to(self.device), torch.tensor(0).to(self.device)) 
+            labels_tensor[:, -1] = last_column
+            return prob_tensor[:,1:], labels_tensor, p_action_list, emb_action_list
+        
     def predict_one_step_g(self, data, return_details=False, process=True):
         sigmoid_func = torch.nn.Sigmoid()
 
@@ -439,8 +572,8 @@ class IEKTQue(QueBaseModel):
 
             # 保存结果
             uni_prob_list.append(prob.detach())
-            emb_action_list.append(idx_sens)
-            p_action_list.append(idx_cog)
+            emb_action_list.append(idx_sens)  # acquirment level
+            p_action_list.append(idx_cog)  # cognition level
             states_list.append(out_x)
             pre_state_list.append(ques_h)
             predict_list.append(logits.squeeze(1))
@@ -451,6 +584,9 @@ class IEKTQue(QueBaseModel):
         self.model.get_ques_representation = orig_get_repr
 
         probs = torch.cat(uni_prob_list, dim=1)  # [B, T]
+        # emb_action_list = torch.cat(emb_action_list, dim=1)
+        # p_action_list = torch.cat(p_action_list, dim=1)
+
 
         if return_details:
             return (data_new,
@@ -460,5 +596,186 @@ class IEKTQue(QueBaseModel):
                     predict_list, ground_truth_list)
         else:
             # 按原来习惯，丢掉第一个 warmup 步
-            return probs[:, 1:]
+            def process_action_list(action_list):
+                # 去掉第一个元素
+                action_list = action_list[1:]
 
+                # 拆分成两个数组
+                a_vals = [t[0].item() for t in action_list]
+                b_vals = [t[1].item() for t in action_list]
+
+                # 拼成 2 × N tensor
+                return torch.tensor([a_vals, b_vals], device=action_list[0].device)
+
+            # 假设 emb_action_list 和 p_action_list 都已经存在
+            p_action_list = process_action_list(p_action_list)
+            emb_action_list = process_action_list(emb_action_list)
+
+            return probs[:, 1:], p_action_list, emb_action_list
+
+    def predict_one_step_g1(self, data, return_details=False, process=True, teacher_forcing_steps=5):
+        """
+        一步预测函数：前 teacher_forcing_steps 步使用 ground-truth 更新状态，
+        后续步使用模型自回归预测。
+        """
+        sigmoid = torch.nn.Sigmoid()
+
+        # —— 1) 支持 {'questions','concepts','labels'} 的模式 —— #
+        if isinstance(data, dict) and 'questions' in data and 'concepts' in data:
+            questions = data['questions']
+            solutions = data['solutions']
+            concepts  = data['concepts']
+            labels    = data.get('labels', None)
+
+            B = len(questions)
+            T = len(questions[0])
+            if labels is None:
+                labels = [[1] * T for _ in range(B)]
+            labels_tensor = torch.tensor(labels, dtype=torch.long, device=self.device)
+
+            # BERT flatten 编码
+            flat_q = [q for seq in questions for q in seq]
+            flat_s = [s for seq in solutions for s in seq]
+            flat_c = [c for seq in concepts for c in seq]
+
+            toks_q = self.bert_tokenizer(flat_q, padding=True, truncation=True, return_tensors='pt').to(self.device)
+            toks_s = self.bert_tokenizer(flat_s, padding=True, truncation=True, return_tensors='pt').to(self.device)
+            toks_c = self.bert_tokenizer(flat_c, padding=True, truncation=True, return_tensors='pt').to(self.device)
+
+            out_q = self.bert_model(**toks_q).last_hidden_state[:, 0, :]
+            out_s = self.bert_model(**toks_s).last_hidden_state[:, 0, :]
+            out_c = self.bert_model(**toks_c).last_hidden_state[:, 0, :]
+            
+            # pooling q,s,c
+            # important
+            out_pool = 0.4*out_q + 0.4*out_s + 0.2*out_c
+            # out_pool = normalize(out_pool, axis=1, norm='l2').flatten()
+
+            # out_pool = self.projection_layer(out_pool)
+            q_c_vec = torch.cat([out_pool], dim=-1).view(B, T, -1)
+   
+            zero_ids = torch.zeros(B, T, dtype=torch.long, device=self.device)
+            data_new = {
+                'cq':      zero_ids,
+                'cc':      zero_ids,
+                'cr':      labels_tensor,
+                'qseqs':   torch.ones_like(zero_ids),
+                'q_c_vec': q_c_vec,
+            }
+        else:
+            # —— 2) 普通 PyKT batch —— #
+            data_new = self.batch_to_device(data, process)
+
+        B, T = data_new['cr'].shape
+        h    = torch.zeros(B, self.model.emb_size, device=self.device)
+        rt_x = torch.zeros(B, 1, self.model.emb_size * 2, device=self.device)
+
+        uni_prob_list    = []
+        emb_action_list  = []
+        p_action_list    = []
+        states_list      = []
+        pre_state_list   = []
+        predict_list     = []
+        ground_truth_list= []
+        reward_list      = []
+
+        orig_get_repr = self.model.get_ques_representation
+
+        for t in range(T):
+            # —— 判断是否使用向量分支 —— #
+            if 'q_c_vec' in data_new:
+                v_input = data_new['q_c_vec'][:, t]
+                # 临时 override representation
+                self.model.get_ques_representation = lambda q, c, _v=v_input: _v
+                use_vec = True
+            else:
+                use_vec = False
+
+            # 拼 ques_h
+            ques_repr = self.model.get_ques_representation(
+                q=data_new['cq'][:, t], c=data_new['cc'][:, t]
+            )
+            # print(ques_repr , ques_repr.shape, )
+            # input("")
+
+            ques_h = torch.cat([ques_repr, h], dim=1)
+
+            # Cog 分支
+            prob_cog = self.model.pi_cog_func(ques_h)
+            idx_cog  = Categorical(prob_cog).sample()
+            emb_p    = self.model.cog_matrix[idx_cog, :]
+
+            if use_vec:
+                # 恢复原 get_ques_representation
+                self.model.get_ques_representation = orig_get_repr
+
+            # 主干推理
+            h_v, v, logits, rt_x = self.model.obtain_v(
+                q=data_new['cq'][:, t],
+                c=data_new['cc'][:, t],
+                h=h, x=rt_x, emb=emb_p
+            )
+
+            prob = sigmoid(logits).squeeze(1)  # [B]
+
+            gt   = data_new['cr'][:, t].float()  # [B]
+            print("groun-truth label:", gt)
+            # —— 教师强制 or 自回归 —— #
+            if t < teacher_forcing_steps:
+                used_label = gt
+            else:
+                used_label = (prob > 0.5).float()
+
+            # 构造 x_gt 和 x_pr
+            label_gt     = used_label.unsqueeze(1).repeat(1, h_v.size(-1))
+            label_pred   = (prob > 0.5).float().unsqueeze(1).repeat(1, h_v.size(-1))
+
+            x_gt = torch.cat([h_v * label_gt,     h_v * (1 - label_gt)],    dim=1)  # [B, 2*emb]
+            x_pr= torch.cat([h_v * label_pred,   h_v * (1 - label_pred)],  dim=1)  # [B, 2*emb]
+            out_x = torch.cat([x_gt, x_pr], dim=1)                                    # [B, 4*emb]
+
+            # Sens 分支
+            prob_sens = self.model.pi_sens_func(out_x)
+            idx_sens  = Categorical(prob_sens).sample()
+            emb_sens  = self.model.acq_matrix[idx_sens, :]
+
+            # 更新隐状态
+            h = self.model.update_state(h, v, emb_sens, used_label.unsqueeze(1))
+
+            # 保存日志
+            uni_prob_list.append(prob.detach())
+            emb_action_list.append(idx_sens)
+            p_action_list.append(idx_cog)
+            states_list.append(out_x)
+            pre_state_list.append(ques_h)
+            predict_list.append(logits.squeeze(1))
+            ground_truth_list.append(gt)
+            reward_list.append((used_label == gt).float())
+
+        # 恢复 repr
+        self.model.get_ques_representation = orig_get_repr
+
+        probs = torch.stack(uni_prob_list, dim=1)  # [B, T]
+
+        def process_action_list(lst):
+            lst = lst[1:]  # 丢掉 t=0 warmup
+            a_vals = [x[0].item() for x in lst]
+            b_vals = [x[1].item() for x in lst]
+            return torch.tensor([a_vals, b_vals], device=lst[0].device)
+
+        p_tensor   = process_action_list(p_action_list)
+        emb_tensor = process_action_list(emb_action_list)
+
+        if return_details:
+            print('predict_list', probs)
+            print(ground_truth_list)
+            return (data_new,
+                    emb_action_list, p_action_list,
+                    states_list, pre_state_list,
+                    reward_list,
+                    predict_list, ground_truth_list)
+        else:
+            # 丢掉第一个 warmup step
+            print('output here')
+            print('reward_list', reward_list)
+            return probs[:, :], p_action_list, emb_action_list

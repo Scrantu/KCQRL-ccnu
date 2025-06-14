@@ -175,7 +175,7 @@ def load_model_from_ckpt(ckpt_path, cfg, device):
     model = IEKTQue(
         num_q        = cfg["num_q"],
         num_c        = cfg["num_c"],
-        emb_size     = 64,
+        emb_size     = 128,
         max_concepts = cfg["max_concepts"],
         device       = device
     )
@@ -185,17 +185,21 @@ def load_model_from_ckpt(ckpt_path, cfg, device):
     return model
 
 
+# 不要运行下面的代码；若想调试上面代码，去iekt_que_train.py
 if __name__ == "__main__":
     # 1) 读取 xes3g5m 超参
-    with open("../configs/data_config.json") as f:
+    with open("C:/Users/zhaoc/Desktop/KCQRL-main/pykt-toolkit/configs/data_config.json") as f:
         data_config = json.load(f)
     cfg = data_config["xes3g5m"]
-
+    ckpt_path =  "C:/Users/zhaoc/Desktop/KCQRL-main/pykt-toolkit/train_test/saved_model/my_model/current_model.ckpt"
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     from pykt.models import train_model,evaluate,init_model,evaluate_only
 
-    model = init_model(model_name='iekt', model_config=data_config, data_config=cfg, emb_type='qid')
-    model  = load_model_from_ckpt("saved_model/current_model.ckpt", cfg, device)
+    model = init_model(model_name='iekt', model_config=data_config, data_config=cfg, emb_type='qid', embed_size=64)
+    net = torch.load(ckpt_path,  map_location=model.device)
+    model.load_state_dict(net)
+    model = model.to(device)
+
 
     # 2) 新文本示例
     questions = [

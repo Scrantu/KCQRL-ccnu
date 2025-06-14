@@ -13,6 +13,8 @@ from pykt.datasets import init_dataset4train
 import datetime
 import random
 import numpy as np
+from pykt.models import evaluate_only
+import pickle
 
 
 def fix_seed(seed=42):
@@ -173,120 +175,124 @@ def main(params):
     save_model = True
     
     debug_print(text = "train model",fuc_name="main")
-    
+
     if model_name == "rkt":
         dict_res = \
             train_model(model, train_loader, valid_loader, num_epochs, opt, ckpt_path, None, None, save_model, data_config[dataset_name], fold, use_wandb=params['use_wandb'], weighted_loss=params["weighted_loss"])
     else:
-        # dict_res = train_model(model, train_loader, valid_loader, num_epochs, opt, ckpt_path, None, None, save_model, use_wandb=params['use_wandb'], weighted_loss=params["weighted_loss"])
+        ckpt_file = os.path.join(ckpt_path, "iekt_bertiny_epoch5_datasize0.01.ckpt")
+
+        if not os.path.exists(ckpt_file):
+            print('We are now training iekt  model')
+            dict_res = train_model(model, train_loader, valid_loader, num_epochs, opt, ckpt_path, None, None, save_model, use_wandb=params['use_wandb'], weighted_loss=params["weighted_loss"])
+
+            if save_model:
+                best_model = init_model(model_name, model_config, data_config[dataset_name], emb_type)
+                net = torch.load(ckpt_file,  map_location=model.device)
+                best_model.load_state_dict(net)
         
-        # ### For pretrained model and "evaluation only"
-        from pykt.models import evaluate_only
-        net = torch.load(os.path.join(ckpt_path, "current_model.ckpt"),  map_location=model.device)
-        model.load_state_dict(net)
-        
-        # way 1
-        # dict_res = evaluate_only.train_model(model, train_loader, valid_loader, num_epochs, opt, ckpt_path, None, None, save_model, use_wandb=params['use_wandb'], weighted_loss=params["weighted_loss"])
-        
-        # way 2
-        # 1. 构造 questions 和 concepts
-        questions = [
-                [
-                    "What is gravity?",
-                    "Define photosynthesis.",
-                    "How to solve a linear equation?",
-                    "Explain Newton's third law.",
-                    "What is the capital of France?",
-                    "Describe the water cycle.",
-                    "What is the Pythagorean theorem?",
-                    "Explain how a plant makes food.",
-                    "What is an atom?",
-                    "Describe the process of mitosis."
-                ],
-                   [
-                    "What is gravity?",
-                    "Define photosynthesis.",
-                    "How to solve a linear equation?",
-                    "Explain Newton's third law.",
-                    "What is the capital of France?",
-                    "Describe the water cycle.",
-                    "What is the Pythagorean theorem?",
-                    "Explain how a plant makes food.",
-                    "What is an atom?",
-                    "Describe the process of mitosis."
-                ],
-                ]
+        else:
+            print(f'We have loaded iekt model: {ckpt_file}')
+            # ### For pretrained model and "evaluation only"
+            net = torch.load(ckpt_file,  map_location=model.device)
+            model.load_state_dict(net)
+            # way 1
+            # dict_res = evaluate_only.train_model(model, train_loader, valid_loader, num_epochs, opt, ckpt_path, None, None, save_model, use_wandb=params['use_wandb'], weighted_loss=params["weighted_loss"])
+            
+            concept_prob_dict_path = 'C:/Users/zhaoc/Desktop/KCQRL-main/pykt-toolkit/train_test/saved_model/my_model/concept_probabilities.pkl'
+            with open(concept_prob_dict_path, 'rb') as f:
+                concept_prob_dict = pickle.load(f)
 
-        concepts = [
-                   [
-                    "physics; force",
-                    "biology; plant",
-                    "math; algebra",
-                    "physics; mechanics",
-                    "geography; capitals",
-                    "science; environment",
-                    "math; geometry",
-                    "biology; photosynthesis",
-                    "chemistry; matter",
-                    "biology; cell division"
-                ],
-                   [
-                    "physics; force",
-                    "biology; plant",
-                    "math; algebra",
-                    "physics; mechanics",
-                    "geography; capitals",
-                    "science; environment",
-                    "math; geometry",
-                    "biology; photosynthesis",
-                    "chemistry; matter",
-                    "biology; cell division"
-                ],
-                ]
+            # way 2
+            # 1. 构造 questions 和 concepts
+            concept_num = 1
+            questions = [
+                    [
+                        "The school has four interest classes: dance, singing, go, and painting. Three children, Xiaoyu, Xiaoming, and Xiaoli, are ready to register. Each of them can only register for one class and each class is different. How many different registration methods are there?",
+                        "There are $$2$$ different English books, $$4$$ different Chinese books, and $$3$$ different math books on the bookshelf. Now we need to take out $$2$$ books from it, and they cannot be from the same subject. How many different ways are there to take them out?",
+                        "If you use $$5$$ different colors to dye the following graphics, requiring adjacent areas (two areas with common edges are called adjacent) to be dyed in different colors and the color can be reused, how many different dyeing methods are there?",
+                    ],
+                    ] * concept_num
+            
+            solutions = [
+                    [
+                        "The school has four interest classes: dance, singing, go, and painting. Three children, Xiaoyu, Xiaoming, and Xiaoli, are ready to register. Each of them can only register for one class and each class is different. How many different registration methods are there?",
+                        "There are $$2$$ different English books, $$4$$ different Chinese books, and $$3$$ different math books on the bookshelf. Now we need to take out $$2$$ books from it, and they cannot be from the same subject. How many different ways are there to take them out?",
+                        "If you use $$5$$ different colors to dye the following graphics, requiring adjacent areas (two areas with common edges are called adjacent) to be dyed in different colors and the color can be reused, how many different dyeing methods are there?",
+                    ],
+                    ] * concept_num
+            
+            concepts = [
+                    [
+                        "Counting principle\nMultiplication principle for counting\nBasic multiplication",
+                        "Understanding of multiplication as repeated addition\nBasic addition\nUnderstanding of combinations\nUnderstanding the concept of different cases in problem-solving",
+                        "Understanding of adjacency in geometry\nBasic multiplication\nUnderstanding of restrictions based on conditions\nApplication of the multiplication principle in combinatorics",
+                    ],
+                    ] * concept_num
 
-        # 2. （可选）如果你有已知的 ground truth
-        labels = [[1, 1, 0, 1, 1, 0, 1, 0, 1, 1], [1, 1, 0, 1, 1, 0, 1, 0, 1, 1]]
+            # 2. 最后一个标签是假的
+            labels = [[1, 0, 0,]] * concept_num  
 
-        # 3. 将它们打包成 data 字典
-        data_text = {
-                    'questions': questions,
-                    'concepts':  concepts,
-                    # 'labels':    labels,    # 如果不传，内部会默认全 1
-                }
-        y = model.predict_one_step_g(data_text)
-        print(y)
-        input('')
+            # 3. 将它们打包成 data 字典
+            data_text = {
+                        'questions': questions,
+                        'solutions': solutions,
+                        'concepts':  concepts,
+                        'labels':    labels,    # 如果不传，内部会默认全 1
+                    }
+            # y = model.predict_one_step_g(data_text, teacher_forcing_steps=3)
 
-        # questions = [
-        # "What is the capital of France?",
-        # "Explain how photosynthesis works.",
-        # "Solve for x in the equation: 2x + 5 = 17."
-        # ]
-        # concepts = [
-        #     "geography; capitals",
-        #     "biology; plant physiology",
-        #     "algebra; linear equations"
-        # ]
-        # # 端到端文本预测
-        # probs, cog_ids, acq_ids, cog_desc, acq_desc = model.predict_text_sequence(
-        #     questions, concepts, greedy=True
-        # )
-        # for i, q in enumerate(questions):
-        #     print(f"Q{i+1}: {q}")
-        #     print(f"  P(correct)      = {probs[i]:.3f}")
-        #     print(f"  Cognition level = {cog_ids[i]} ({cog_desc[i]})")
-        #     print(f"  Acquisition lvl = {acq_ids[i]} ({acq_desc[i]})")
-        #     print()
-        # dict_res = evaluate_only.train_model(model, train_loader, valid_loader, num_epochs, opt, ckpt_path, None, None, save_model, use_wandb=params['use_wandb'], weighted_loss=params["weighted_loss"])
-       
-    # if save_model:
-    #     best_model = init_model(model_name, model_config, data_config[dataset_name], emb_type)
-    #     net = torch.load(os.path.join(ckpt_path, emb_type+"_model_assisg2009.ckpt"))
-    #     best_model.load_state_dict(net)
+            # tensor([[0.7927, 0.5538]], device='cuda:0')， tensor([[1, 0, 1]], device='cuda:0') tensor([1], device='cuda:0') tensor([9], device='cuda:0')
+            y, labels_tensor, p_action_list, emb_action_list = model.predict_one_step_text(data_text, teacher_forcing_steps=0)
+            print(y)  # y去掉了t=0时刻的预测
+            cognition_level = p_action_list[-1]
+            acquition_level = emb_action_list[-1]
+            print(labels_tensor, cognition_level, acquition_level)
 
+            # input('')
+
+            path_kc_questions_map = 'C:/Users/zhaoc/Desktop/KCQRL-main/data/XES3G5M/metadata/kc_questions_map.json'
+            with open(path_kc_questions_map, 'r') as file:
+                kc_questions_map = json.load(file)
+            
+            path_questions_map = 'C:/Users/zhaoc/Desktop/KCQRL-main/data/XES3G5M/metadata/questions_translated_kc_sol_annotated_mapped.json'
+            with open(path_questions_map, 'r') as file:
+                questions_map = json.load(file)
+
+            import random
+
+            # for k,v in kc_questions_map.items():
+            #     concept_id = k
+            #     question_id = random.choice(v)
+            #     question_text = questions_map[question_id]["question"]
+            #     solution_text = questions_map[question_id]["step_by_step_solution_text"]
+
+
+            # questions = [
+            # "What is the capital of France?",
+            # "Explain how photosynthesis works.",
+            # "Solve for x in the equation: 2x + 5 = 17."
+            # ]
+            # concepts = [
+            #     "geography; capitals",
+            #     "biology; plant physiology",
+            #     "algebra; linear equations"
+            # ]
+            # # 端到端文本预测
+            # probs, cog_ids, acq_ids, cog_desc, acq_desc = model.predict_text_sequence(
+            #     questions, concepts, greedy=True
+            # )
+            # for i, q in enumerate(questions):
+            #     print(f"Q{i+1}: {q}")
+            #     print(f"  P(correct)      = {probs[i]:.3f}")
+            #     print(f"  Cognition level = {cog_ids[i]} ({cog_desc[i]})")
+            #     print(f"  Acquisition lvl = {acq_ids[i]} ({acq_desc[i]})")
+            #     print()
+
+    dict_res = evaluate_only.train_model(model, train_loader, valid_loader, num_epochs, opt, ckpt_path, None, None, save_model, use_wandb=params['use_wandb'], weighted_loss=params["weighted_loss"])
     print("fold\tmodelname\tembtype\ttestauc\ttestavgprc\ttestacc\twindow_testauc\twindow_testavgprc\twindow_testacc\tvalidauc\tvalidavgprc\tvalidacc\tbest_epoch")
     print(str(fold) + "\t" + model_name + "\t" + emb_type + "\t" + str(round(dict_res['test_auc'], 4)) + str(round(dict_res['test_avg_prc'], 4)) + "\t" + str(round(dict_res['test_acc'], 4)) + "\t" + str(round(dict_res['window_test_auc'], 4)) + str(round(dict_res['window_test_avg_prc'], 4)) + "\t" + str(round(dict_res['window_test_acc'], 4)) + "\t" + str(round(dict_res['valid_auc_checkpoint'], 4)) + str(round(dict_res['valid_avg_prc_checkpoint'], 4)) + "\t" + str(round(dict_res['valid_acc_checkpoint'], 4)) + "\t" + str(dict_res['best_epoch']))
-    model_save_path = os.path.join(ckpt_path, emb_type+"_model.ckpt")
+    model_save_path = os.path.join(ckpt_file)
     print(f"end:{datetime.datetime.now()}")
     
     if params['use_wandb']==1:
