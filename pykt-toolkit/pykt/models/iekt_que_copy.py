@@ -335,105 +335,90 @@ class IEKTQue(QueBaseModel):
         sigmoid_func = torch.nn.Sigmoid()
         # data_new = self.batch_to_device(data,process)
       
+        # —— 1) 支持 {'questions','concepts','labels'} 的模式 —— #
         if isinstance(data, dict) and 'questions' in data and 'concepts' in data:
             questions = data['questions']
             solutions = data['solutions']
-            concepts = data['concepts']
-            labels = data.get('labels', None)
+            concepts  = data['concepts']
+            labels    = data.get('labels', None)
 
-            # B: batch size (学生数量), T: sequence length (学习步数)
             B = len(questions)
-            T = len(questions[0])
+            T = len(questions[0])  # 序列最大长度
             if labels is None:
-                labels = [[1] * T for _ in range(B)] 
+                labels = [[1] * T for _ in range(B)]
             labels_tensor = torch.tensor(labels, dtype=torch.long, device=self.device)
+
+            # BERT flatten 编码
+            flat_q = [q for seq in questions for q in seq]
+            flat_s = [s for seq in solutions for s in seq]
+            flat_c = [c for seq in concepts for c in seq]
+
+            ####################
+            # --- 优化点：合并文本进行一次性分词和BERT推理 ---
+            # 1. 合并所有文本到一个列表中，并记录每个部分的起始/结束索引
+            all_texts = flat_q + flat_s + flat_c
+            num_q = len(flat_q)
+            num_s = len(flat_s)
+            num_c = len(flat_c)
+
+            # 2. 对合并后的文本进行一次性分词
+            # `padding=True` 会对整个批次进行填充到最长序列的长度
+            # `truncation=True` 会截断过长的序列
+            combined_toks = self.bert_tokenizer(
+                all_texts, 
+                padding=True, 
+                truncation=True, 
+                return_tensors='pt',
+                max_length=128
+            ).to(self.device)
+
+            # 3. 对合并后的分词结果进行一次性 BERT 推理
+            # 这将是整个批次 (B*T*3) 的前向传播
+            with torch.no_grad():
+                combined_outputs = self.bert_model(**combined_toks).last_hidden_state
+
+            # 4. 从合并的输出中提取对应的 [CLS] 向量
+            # combined_outputs[:, 0, :] 得到所有文本的 [CLS] 向量
+            all_cls_embeddings = combined_outputs[:, 0, :] 
+
+            # 5. 根据之前记录的索引，分割出 q, s, c 的嵌入
+            out_q = all_cls_embeddings[0 : num_q]
+            out_s = all_cls_embeddings[num_q : num_q + num_s]
+            out_c = all_cls_embeddings[num_q + num_s : num_q + num_s + num_c]
+
+            print(f"Shape of out_q after optimization: {out_q.shape}")
+            print(f"Shape of out_s after optimization: {out_s.shape}")
+            print(f"Shape of out_c after optimization: {out_c.shape}")
+
+            # 后续代码保持不变
+            out_pool = 0.4*out_q + 0.4*out_s + 0.2*out_c
+            q_c_vec = out_pool.view(B, T, 128)
+            ####################
+
+
+            # toks_q = self.bert_tokenizer(flat_q, padding=True, truncation=True, return_tensors='pt').to(self.device)
+            # toks_s = self.bert_tokenizer(flat_s, padding=True, truncation=True, return_tensors='pt').to(self.device)
+            # toks_c = self.bert_tokenizer(flat_c, padding=True, truncation=True, return_tensors='pt').to(self.device)
+
+            # out_q = self.bert_model(**toks_q).last_hidden_state[:, 0, :]
+            # out_s = self.bert_model(**toks_s).last_hidden_state[:, 0, :]
+            # out_c = self.bert_model(**toks_c).last_hidden_state[:, 0, :]
             
-            BERT_OUT_DIM = 128
-            # 步骤1: 扁平化所有问题、解决方案和概念文本
-            # 这里的扁平化会将所有序列的文本按顺序连接起来
-            # 例如: flat_q = [q_s1_t0, q_s1_t1, ..., q_s2_t0, q_s2_t1, ...]
-            flat_questions_texts = [q for seq in questions for q in seq]
-            flat_solutions_texts = [s for seq in solutions for s in seq]
-            flat_concepts_texts = [c for seq in concepts for c in seq]
-
-            # 步骤2: 合并所有扁平化的文本，并构建唯一的文本列表及其映射
-            # 这是一个关键优化步骤：我们只对唯一的文本进行BERT编码
-            all_raw_texts = flat_questions_texts + flat_solutions_texts + flat_concepts_texts
-            
-            unique_text_to_idx_map = {}  # 字典: 文本字符串 -> 其在 unique_texts_list 中的索引
-            unique_texts_list = []       # 列表: 存储所有不重复的文本字符串
-
-            # 用于存储原始文本在 unique_texts_list 中对应索引的列表
-            # 这些索引将用于从 BERT 输出的唯一嵌入中重建原始顺序
-            original_q_indices = []
-            original_s_indices = []
-            original_c_indices = []
-
-            for i, text in enumerate(all_raw_texts):
-                if text not in unique_text_to_idx_map:
-                    unique_text_to_idx_map[text] = len(unique_texts_list)
-                    unique_texts_list.append(text)
-                
-                # 根据原始文本在 all_raw_texts 中的位置，将其对应的唯一索引分配到正确的列表中
-                if i < len(flat_questions_texts):
-                    original_q_indices.append(unique_text_to_idx_map[text])
-                elif i < len(flat_questions_texts) + len(flat_solutions_texts):
-                    original_s_indices.append(unique_text_to_idx_map[text])
-                else:
-                    original_c_indices.append(unique_text_to_idx_map[text])
-
-            # 步骤3: 对所有唯一的文本进行一次性 BERT 分词和模型推理
-            # 如果 unique_texts_list 为空（理论上不应该，但为了鲁棒性考虑），则创建空张量
-            if unique_texts_list: 
-                # 使用 tokenizer 对所有唯一的文本进行编码
-                # padding='max_length': 将所有序列填充到 max_seq_length
-                # truncation=True: 如果序列超过 max_seq_length 则截断
-                unique_tokens_batch = self.bert_tokenizer(
-                    unique_texts_list, 
-                    padding='max_length',
-                    truncation=True,
-                    max_length=128,
-                    return_tensors='pt' # 返回 PyTorch 张量
-                ).to(self.device)
-                
-                # 将编码后的唯一文本批次送入 BERT 模型进行推理
-                # .last_hidden_state 得到所有 token 的隐藏状态
-                # [:, 0, :] 提取每个序列的 [CLS] token 的隐藏状态（通常用于表示整个序列）
-                unique_cls_embeddings = self.bert_model(**unique_tokens_batch).last_hidden_state[:, 0, :]
-            else: 
-                unique_cls_embeddings = torch.empty(0, BERT_OUT_DIM, device=self.device)
-
-
-            # 步骤4: 使用原始索引从唯一的嵌入中重构出 flat_q, flat_s, flat_c 的嵌入
-            # original_q_indices 是一个 Python 列表，需要先转换为 PyTorch 张量
-            # 然后使用张量索引从 unique_cls_embeddings 中高效地获取对应嵌入
-            out_q_embeddings = unique_cls_embeddings[torch.tensor(original_q_indices, device=self.device)]
-            out_s_embeddings = unique_cls_embeddings[torch.tensor(original_s_indices, device=self.device)]
-            out_c_embeddings = unique_cls_embeddings[torch.tensor(original_c_indices, device=self.device)]
-            
-            # 确保扁平化后的嵌入数量与原始 B*T 匹配，这是一个健全性检查
-            if B * T != out_q_embeddings.shape[0]: 
-                 raise ValueError(f"Mismatch in expected flattened embeddings count. Expected {B*T}, got {out_q_embeddings.shape[0]}.")
-
-            # 后续的加权平均和重塑操作与之前保持一致
-            out_pool = 0.4 * out_q_embeddings + 0.4 * out_s_embeddings + 0.2 * out_c_embeddings
-            
-            # 将扁平化的嵌入重新塑形为 (B, T, bert_output_dim)
-            q_c_vec = out_pool.view(B, T, BERT_OUT_DIM) 
-
-            # 以下是您模型中的其他数据准备和循环推理逻辑
-            # ... (这部分代码与之前保持一致，只粘贴关键部分以供完整性参考)
-            zero_ids = torch.zeros(B, T, dtype=torch.long, device=self.device) 
+            # # pooling q,s,c
+            # # important
+            # out_pool = 0.4*out_q + 0.4*out_s + 0.2*out_c
+            # # out_pool = normalize(out_pool, axis=1, norm='l2').flatten()
+            # # out_pool = self.projection_layer(out_pool)
+            # q_c_vec = out_pool.view(B, T, -1)
+   
+            zero_ids = torch.zeros(B, T, dtype=torch.long, device=self.device)
             data_new = {
                 'cq':      zero_ids,
                 'cc':      zero_ids,
                 'cr':      labels_tensor,
                 'qseqs':   torch.ones_like(zero_ids),
-                'q_c_vec': q_c_vec, 
+                'q_c_vec': q_c_vec,
             }
-        else:
-            raise ValueError("Unsupported data format. Expected a dictionary with 'questions', 'solutions', 'concepts'.")
-
 
         data_len = data_new['cc'].shape[0]
         seq_len = data_new['cc'].shape[1]
