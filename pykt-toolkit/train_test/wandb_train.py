@@ -205,14 +205,22 @@ def main(params):
 
             # way 2
             # 1. 构造 questions 和 concepts
-            concept_num = 1
+            concept_num = 10
             questions = [
                     [
                         "The school has four interest classes: dance, singing, go, and painting. Three children, Xiaoyu, Xiaoming, and Xiaoli, are ready to register. Each of them can only register for one class and each class is different. How many different registration methods are there?",
                         "There are $$2$$ different English books, $$4$$ different Chinese books, and $$3$$ different math books on the bookshelf. Now we need to take out $$2$$ books from it, and they cannot be from the same subject. How many different ways are there to take them out?",
                         "If you use $$5$$ different colors to dye the following graphics, requiring adjacent areas (two areas with common edges are called adjacent) to be dyed in different colors and the color can be reused, how many different dyeing methods are there?",
                     ],
-                    ] * concept_num
+                    ]
+            for i in range(concept_num-1):
+                questions.append(
+                    [
+                        "The school has four interest classes: dance, singing, go, and painting. Three children, Xiaoyu, Xiaoming, and Xiaoli, are ready to register. Each of them can only register for one class and each class is different. How many different registration methods are there?",
+                        "There are $$2$$ different English books, $$4$$ different Chinese books, and $$3$$ different math books on the bookshelf. Now we need to take out $$2$$ books from it, and they cannot be from the same subject. How many different ways are there to take them out?",
+                        "If you use $$5$$ different colors to dye the following graphics, requiring adjacent areas (two areas with common edges are called adjacent) to be dyed in different colors and the color can be reused, how many different dyeing methods are there?",
+                    ],
+                )
             
             solutions = [
                     [
@@ -220,53 +228,126 @@ def main(params):
                         "There are $$2$$ different English books, $$4$$ different Chinese books, and $$3$$ different math books on the bookshelf. Now we need to take out $$2$$ books from it, and they cannot be from the same subject. How many different ways are there to take them out?",
                         "If you use $$5$$ different colors to dye the following graphics, requiring adjacent areas (two areas with common edges are called adjacent) to be dyed in different colors and the color can be reused, how many different dyeing methods are there?",
                     ],
-                    ] * concept_num
-            
+                    ]
+            for i in range(concept_num-1):
+                solutions.append(
+                    [
+                        "The school has four interest classes: dance, singing, go, and painting. Three children, Xiaoyu, Xiaoming, and Xiaoli, are ready to register. Each of them can only register for one class and each class is different. How many different registration methods are there?",
+                        "There are $$2$$ different English books, $$4$$ different Chinese books, and $$3$$ different math books on the bookshelf. Now we need to take out $$2$$ books from it, and they cannot be from the same subject. How many different ways are there to take them out?",
+                        "If you use $$5$$ different colors to dye the following graphics, requiring adjacent areas (two areas with common edges are called adjacent) to be dyed in different colors and the color can be reused, how many different dyeing methods are there?",
+                    ],
+                )
+
             concepts = [
                     [
                         "Counting principle\nMultiplication principle for counting\nBasic multiplication",
                         "Understanding of multiplication as repeated addition\nBasic addition\nUnderstanding of combinations\nUnderstanding the concept of different cases in problem-solving",
                         "Understanding of adjacency in geometry\nBasic multiplication\nUnderstanding of restrictions based on conditions\nApplication of the multiplication principle in combinatorics",
                     ],
-                    ] * concept_num
+                    ]
+            for i in range(concept_num-1):
+                concepts.append(
+                    [
+                        "Counting principle\nMultiplication principle for counting\nBasic multiplication",
+                        "Understanding of multiplication as repeated addition\nBasic addition\nUnderstanding of combinations\nUnderstanding the concept of different cases in problem-solving",
+                        "Understanding of adjacency in geometry\nBasic multiplication\nUnderstanding of restrictions based on conditions\nApplication of the multiplication principle in combinatorics",
+                    ],
+                )
 
             # 2. 最后一个标签是假的
-            labels = [[1, 0, 0,]] * concept_num  
+            labels = [[1, 0, 0,]]
+            for i in range(concept_num-1):
+                labels.append(
+                    [1, 0, 0,]
+                )
 
-            # 3. 将它们打包成 data 字典
+
+
+            # # 3. 将它们打包成 data 字典
+            # data_text = {
+            #             'questions': questions,
+            #             'solutions': solutions,
+            #             'concepts':  concepts,
+            #             'labels':    labels,    # 如果不传，内部会默认全 1
+            #         }
+            # # y = model.predict_one_step_g(data_text, teacher_forcing_steps=3)
+
+            # # y:tensor([[0.7927, 0.5538]], device='cuda:0')， tensor([[1, 0, 1]], device='cuda:0') tensor([1], device='cuda:0') tensor([9], device='cuda:0')
+            # y, labels_tensor, p_action_list, emb_action_list = model.predict_one_step_text(data_text, teacher_forcing_steps=0)
+            # cognition_level = p_action_list[-1]
+            # acquition_level = emb_action_list[-1]
+
+            # ### y:tensor([[0.7927, 0.5538]], device='cuda:0')， tensor([[1, 0, 1]], device='cuda:0') tensor([1], device='cuda:0') tensor([9], device='cuda:0')
+            # print(y)  # y去掉了t=0时刻的预测
+            # print(labels_tensor, cognition_level, acquition_level)
+
+
+
+
+            # 获取所有kc id
+            path_kc_questions_map = 'C:/Users/zhaoc/Desktop/KCQRL-main/data/XES3G5M/metadata/kc_questions_map.json'
+            with open(path_kc_questions_map, 'r') as file:
+                kc_questions_map = json.load(file)
+            
+            # 获取所有问题
+            path_questions_map = 'C:/Users/zhaoc/Desktop/KCQRL-main/data/XES3G5M/metadata/questions_translated_kc_sol_annotated_mapped.json'
+            with open(path_questions_map, 'r') as file:
+                questions_map = json.load(file)
+            
+            # print(len(kc_questions_map.keys()))
+            # assert concept_num == len(kc_questions_map.keys())
+
+            idx = 0
+            idx_to_concept = {}
+            for k,v in kc_questions_map.items():
+                if idx > concept_num-1:
+                     break
+
+                concept_text = k
+                idx_to_concept[idx] = concept_text
+
+                question_id = str(random.choice(v))
+                question_text = questions_map[question_id]["question"]
+                solution_text = questions_map[question_id]["step_by_step_solution_text"]
+
+                # 将每个知识点及对应例题构造为一个data
+
+                questions[idx].append(question_text)
+                solutions[idx].append(solution_text)
+                concepts[idx].append(concept_text)
+                labels[idx].append(1)
+                idx += 1
+            
+            
+
             data_text = {
                         'questions': questions,
                         'solutions': solutions,
                         'concepts':  concepts,
                         'labels':    labels,    # 如果不传，内部会默认全 1
                     }
-            # y = model.predict_one_step_g(data_text, teacher_forcing_steps=3)
 
-            # tensor([[0.7927, 0.5538]], device='cuda:0')， tensor([[1, 0, 1]], device='cuda:0') tensor([1], device='cuda:0') tensor([9], device='cuda:0')
             y, labels_tensor, p_action_list, emb_action_list = model.predict_one_step_text(data_text, teacher_forcing_steps=0)
+            cognition_level_tensor = p_action_list[-1]
+            acquition_level_tensor = emb_action_list[-1]
             print(y)  # y去掉了t=0时刻的预测
-            cognition_level = p_action_list[-1]
-            acquition_level = emb_action_list[-1]
-            print(labels_tensor, cognition_level, acquition_level)
+            print(labels_tensor, cognition_level_tensor, acquition_level_tensor)
 
-            # input('')
+            # 根据cognition level的范围筛选候选知识点
+            data_list = cognition_level_tensor.tolist()
+            filtered_pairs = []
+            for i, value in enumerate(data_list):
+                if 3 <= value <= 7:
+                    filtered_pairs.append((value, i)) # 存储 (值, 原始下标)
+            filtered_pairs.sort(key=lambda x: x[0], reverse=True)
+            appropriate_cognition_level_idx_sorted = [pair[1] for pair in filtered_pairs]
 
-            path_kc_questions_map = 'C:/Users/zhaoc/Desktop/KCQRL-main/data/XES3G5M/metadata/kc_questions_map.json'
-            with open(path_kc_questions_map, 'r') as file:
-                kc_questions_map = json.load(file)
-            
-            path_questions_map = 'C:/Users/zhaoc/Desktop/KCQRL-main/data/XES3G5M/metadata/questions_translated_kc_sol_annotated_mapped.json'
-            with open(path_questions_map, 'r') as file:
-                questions_map = json.load(file)
-
-            import random
-
-            # for k,v in kc_questions_map.items():
-            #     concept_id = k
-            #     question_id = random.choice(v)
-            #     question_text = questions_map[question_id]["question"]
-            #     solution_text = questions_map[question_id]["step_by_step_solution_text"]
-
+            topk_concepts = []
+            for idx in appropriate_cognition_level_idx_sorted:
+                concept_text = idx_to_concept[idx]
+                topk_concepts.append(concept_text)
+            TOPK= 2
+            print('根据选取的appropriate_cognition_level对应的index，得到Top-K concepts是：', topk_concepts[0:TOPK])
 
             # questions = [
             # "What is the capital of France?",
@@ -289,16 +370,16 @@ def main(params):
             #     print(f"  Acquisition lvl = {acq_ids[i]} ({acq_desc[i]})")
             #     print()
 
-    dict_res = evaluate_only.train_model(model, train_loader, valid_loader, num_epochs, opt, ckpt_path, None, None, save_model, use_wandb=params['use_wandb'], weighted_loss=params["weighted_loss"])
-    print("fold\tmodelname\tembtype\ttestauc\ttestavgprc\ttestacc\twindow_testauc\twindow_testavgprc\twindow_testacc\tvalidauc\tvalidavgprc\tvalidacc\tbest_epoch")
-    print(str(fold) + "\t" + model_name + "\t" + emb_type + "\t" + str(round(dict_res['test_auc'], 4)) + str(round(dict_res['test_avg_prc'], 4)) + "\t" + str(round(dict_res['test_acc'], 4)) + "\t" + str(round(dict_res['window_test_auc'], 4)) + str(round(dict_res['window_test_avg_prc'], 4)) + "\t" + str(round(dict_res['window_test_acc'], 4)) + "\t" + str(round(dict_res['valid_auc_checkpoint'], 4)) + str(round(dict_res['valid_avg_prc_checkpoint'], 4)) + "\t" + str(round(dict_res['valid_acc_checkpoint'], 4)) + "\t" + str(dict_res['best_epoch']))
-    model_save_path = os.path.join(ckpt_file)
-    print(f"end:{datetime.datetime.now()}")
+    # dict_res = evaluate_only.train_model(model, train_loader, valid_loader, num_epochs, opt, ckpt_path, None, None, save_model, use_wandb=params['use_wandb'], weighted_loss=params["weighted_loss"])
+    # print("fold\tmodelname\tembtype\ttestauc\ttestavgprc\ttestacc\twindow_testauc\twindow_testavgprc\twindow_testacc\tvalidauc\tvalidavgprc\tvalidacc\tbest_epoch")
+    # print(str(fold) + "\t" + model_name + "\t" + emb_type + "\t" + str(round(dict_res['test_auc'], 4)) + str(round(dict_res['test_avg_prc'], 4)) + "\t" + str(round(dict_res['test_acc'], 4)) + "\t" + str(round(dict_res['window_test_auc'], 4)) + str(round(dict_res['window_test_avg_prc'], 4)) + "\t" + str(round(dict_res['window_test_acc'], 4)) + "\t" + str(round(dict_res['valid_auc_checkpoint'], 4)) + str(round(dict_res['valid_avg_prc_checkpoint'], 4)) + "\t" + str(round(dict_res['valid_acc_checkpoint'], 4)) + "\t" + str(dict_res['best_epoch']))
+    # model_save_path = os.path.join(ckpt_file)
+    # print(f"end:{datetime.datetime.now()}")
     
-    if params['use_wandb']==1:
-        wandb.log({ 
-                    "Final Validation AUC": dict_res['valid_auc_checkpoint'], 
-                    "Final Validation AUPRC": dict_res['valid_avg_prc_checkpoint'], 
-                    "Final Validation ACC": dict_res['valid_acc_checkpoint'],  
-                    "best_epoch": dict_res['best_epoch'],
-                    "model_save_path":model_save_path}, commit=True)
+    # if params['use_wandb']==1:
+    #     wandb.log({ 
+    #                 "Final Validation AUC": dict_res['valid_auc_checkpoint'], 
+    #                 "Final Validation AUPRC": dict_res['valid_avg_prc_checkpoint'], 
+    #                 "Final Validation ACC": dict_res['valid_acc_checkpoint'],  
+    #                 "best_epoch": dict_res['best_epoch'],
+    #                 "model_save_path":model_save_path}, commit=True)
